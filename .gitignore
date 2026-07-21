@@ -1,0 +1,62 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+coverage/
+.nyc_output/
+
+# Environment variables and local secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Runtime files
+pids/
+*.pid
+*.pid.lock
+
+# Test and tooling caches
+.cache/
+.eslintcache
+.jest-cache/
+*.tsbuildinfo
+
+# IDEs and editors
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.swp
+*.swo
+
+# Operating systems
+.DS_Store
+Thumbs.db
+*:Zone.Identifier
+
+# Local Docker data
+.docker-data/
+docker-data/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Package manager artifacts
+.pnpm-store/
+.yarn/cache/
+.yarn/install-state.gz
+
+# NestJS generated files
+*.d.ts.map
+*.js.map
