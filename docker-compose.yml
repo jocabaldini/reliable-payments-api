@@ -1,0 +1,27 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: reliable-payments-postgres
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: reliable_payments
+      POSTGRES_USER: reliable_payments_user
+      POSTGRES_PASSWORD: reliable_payments_password
+
+    ports:
+      - '5432:5432'
+
+    volumes:
+      - reliable-payments-postgres-data:/var/lib/postgresql/data
+
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U reliable_payments_user -d reliable_payments']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  reliable-payments-postgres-data:
+    name: reliable-payments-postgres-data
