@@ -1,5 +1,6 @@
-import { Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Post } from '@nestjs/common';
 import { PaymentsService } from './payments.service';
+import { CreatePaymentDto } from './dto/create.payment.dto';
 
 @Controller('payments')
 export class PaymentsController {
@@ -11,7 +12,10 @@ export class PaymentsController {
   }
 
   @Post()
-  createPayment(): string {
-    return this.paymentsService.createPayment({});
+  createPayment(
+    @Headers('Idempotency-Key') IdempotencyKey: string,
+    @Body() createPaymentDto: CreatePaymentDto,
+  ): string {
+    return this.paymentsService.createPayment(createPaymentDto);
   }
 }
