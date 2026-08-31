@@ -23,14 +23,26 @@
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "test:watch": "jest --watch",
     "validate": "npm run lint && npm run format:check && npm run typecheck && npm run test:ci",
-    "prepare": "husky"
+    "prepare": "husky",
+    "typeorm": "typeorm-ts-node-commonjs",
+    "migration:create": "npm run typeorm -- migration:create",
+    "migration:generate": "npm run typeorm -- migration:generate -d src/database/data-source.ts",
+    "migration:run": "npm run typeorm -- migration:run -d src/database/data-source.ts",
+    "migration:revert": "npm run typeorm -- migration:revert -d src/database/data-source.ts",
+    "migration:show": "npm run typeorm -- migration:show -d src/database/data-source.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
+    "@nestjs/config": "^4.0.4",
     "@nestjs/core": "^11.0.1",
     "@nestjs/platform-express": "^11.0.1",
+    "@nestjs/typeorm": "^11.0.3",
+    "class-validator": "^0.15.1",
+    "dotenv": "^17.4.2",
+    "pg": "^8.22.0",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "typeorm": "^1.1.0"
   },
   "devDependencies": {
     "@commitlint/cli": "^20.5.3",
