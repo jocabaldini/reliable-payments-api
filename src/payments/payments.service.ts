@@ -1,31 +1,36 @@
 import { ConflictException, Injectable } from '@nestjs/common';
-import { CreatePaymentDto } from './dto/create.payment.dto';
-import { DataSource, Repository } from 'typeorm';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import * as crypto from 'crypto';
-import { IdempotencyKey, IdempotencyRecordStatus } from './entities/idempotency-key.entity';
+import { CreatePaymentDto } from './dto/create.payment.dto';
 import { Payment } from './entities/payment.entity';
 import { PaymentStatus } from './enums/payment-status.enum';
-import { InjectRepository } from '@nestjs/typeorm';
-import { PaymentProvider } from './ports/payment-provider';
+import { IdempotencyRecordStatus } from './enums/idempotency-status.enum';
 import { PaymentMethod } from './enums/payment-method.enum';
+import { PaymentProvider } from './ports/payment-provider';
 
-interface IdempotencyKeyRow {
+interface PaymentRow {
   id: string;
-  key: string;
+  idempotency_key: string;
+  idempotency_status: IdempotencyRecordStatus;
   request_fingerprint: string;
-  status: IdempotencyRecordStatus;
   response_body: Record<string, unknown> | null;
   response_status: number | null;
+  amount_in_cents: number;
+  currency: string;
+  payment_method: PaymentMethod;
+  status: PaymentStatus;
+  external_reference: string | null;
+  failure_reason: string | null;
+  instrument_reference: string | null;
   created_at: Date;
+  updated_at: Date;
 }
 
 @Injectable()
 export class PaymentsService {
   constructor(
-    private readonly dataSource: DataSource,
     @InjectRepository(Payment) private readonly paymentRepository: Repository<Payment>,
-    @InjectRepository(IdempotencyKey)
-    private readonly idempotencyKeyRepository: Repository<IdempotencyKey>,
     private readonly paymentProvider: PaymentProvider,
   ) {}
 
@@ -39,54 +44,46 @@ export class PaymentsService {
       .update(`${data.amountInCents}-${data.currency}-${data.paymentMethod}`)
       .digest('hex');
 
-    const claim = await this.dataSource.transaction(async (manager) => {
-      const claimed = await manager.query<IdempotencyKeyRow[]>(
-        `INSERT INTO idempotency_keys (key, request_fingerprint) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING RETURNING *`,
-        [idempotencyKey, fingerprint],
-      );
+    // claim + criação do Payment num INSERT só — já é atômico sozinho, não precisa de transaction.
+    const claimed = await this.paymentRepository.query<PaymentRow[]>(
+      `INSERT INTO payments
+         (idempotency_key, request_fingerprint, amount_in_cents, currency, payment_method, external_reference, status, idempotency_status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       ON CONFLICT (idempotency_key) DO NOTHING
+       RETURNING *`,
+      [
+        idempotencyKey,
+        fingerprint,
+        data.amountInCents,
+        data.currency,
+        data.paymentMethod,
+        data.externalReference ?? null,
+        PaymentStatus.PROCESSING,
+        IdempotencyRecordStatus.IN_PROGRESS,
+      ],
+    );
 
-      if (claimed.length === 0) {
-        return { won: false as const };
-      }
-
-      const paymentRepo = manager.getRepository(Payment);
-
-      const payment = await paymentRepo.save(
-        paymentRepo.create({
-          amountInCents: data.amountInCents,
-          currency: data.currency,
-          paymentMethod: data.paymentMethod,
-          externalReference: data.externalReference ?? null,
-          status: PaymentStatus.PROCESSING,
-        }),
-      );
-
-      return { won: true as const, payment };
-    });
-
-    if (!claim.won) {
-      // perdeu — busca o registro existente e ramifica
-      // (completed com mesmo fingerprint / in_progress / fingerprint diferente)
-      const existing = await this.idempotencyKeyRepository.findOne({
-        where: {
-          key: idempotencyKey,
-        },
-      });
+    if (claimed.length === 0) {
+      // perdeu — busca o Payment existente e ramifica
+      const existing = await this.paymentRepository.findOne({ where: { idempotencyKey } });
 
       if (!existing) {
-        throw new Error('Unexpected empty IdempotencyKey record');
+        throw new Error('Unexpected empty Payment record');
       }
 
       if (existing.requestFingerprint !== fingerprint) {
         throw new ConflictException({ error: 'IDEMPOTENCY_KEY_PAYLOAD_MISMATCH' });
       }
 
-      if (IdempotencyRecordStatus.COMPLETED === existing.status) {
+      if (existing.idempotencyStatus === IdempotencyRecordStatus.COMPLETED) {
         return existing.responseBody as Partial<Payment>;
       }
 
       throw new ConflictException({ error: 'IDEMPOTENCY_KEY_IN_PROGRESS' });
     }
+
+    // claimed[0] existe com certeza — RETURNING * de um INSERT bem-sucedido sempre traz exatamente uma linha.
+    const claimedPayment = claimed[0]!;
 
     const providerInput = {
       providerIdempotencyKey: idempotencyKey,
@@ -111,31 +108,34 @@ export class PaymentsService {
       instrumentReference = result.instrumentReference;
     }
 
-    // transação 2 - aqui mesmo ou entra no if do resultao dos metodos de pagamento?
-    return await this.dataSource.transaction(async (manager) => {
-      const paymentRepo = manager.getRepository(Payment);
-      const payment = claim.payment;
-      payment.status = finalStatus;
-      payment.failureReason = failureReason;
-      payment.instrumentReference = instrumentReference;
+    const responseBody: Partial<Payment> = {
+      id: claimedPayment.id,
+      amountInCents: claimedPayment.amount_in_cents,
+      currency: claimedPayment.currency,
+      paymentMethod: claimedPayment.payment_method,
+      status: finalStatus,
+      externalReference: claimedPayment.external_reference,
+    };
 
-      await paymentRepo.save(payment);
+    // update final — de novo, uma linha, uma instrução, atômico sozinho. O `AND status = PROCESSING`
+    // é a proteção contra o item 12 (reconciliação) tentando resolver o mesmo Payment ao mesmo tempo.
+    await this.paymentRepository.query(
+      `UPDATE payments
+         SET status = $1, failure_reason = $2, instrument_reference = $3,
+             idempotency_status = $4, response_body = $5, response_status = $6
+       WHERE id = $7 AND status = $8`,
+      [
+        finalStatus,
+        failureReason,
+        instrumentReference,
+        IdempotencyRecordStatus.COMPLETED,
+        JSON.stringify(responseBody),
+        201,
+        claimedPayment.id,
+        PaymentStatus.PROCESSING,
+      ],
+    );
 
-      const responseBody: Partial<Payment> = {
-        id: payment.id,
-        amountInCents: payment.amountInCents,
-        currency: payment.currency,
-        paymentMethod: payment.paymentMethod,
-        status: payment.status,
-        externalReference: payment.externalReference,
-      };
-
-      await manager.query(
-        `UPDATE idempotency_keys SET status = $1, response_body = $2, response_status = $3 where key = $4`,
-        [IdempotencyRecordStatus.COMPLETED, JSON.stringify(responseBody), 201, idempotencyKey],
-      );
-
-      return responseBody;
-    });
+    return responseBody;
   }
 }

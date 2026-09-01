@@ -81,7 +81,7 @@ describe('Payments creation (e2e)', () => {
   });
 
   beforeEach(async () => {
-    await dataSource.query('TRUNCATE TABLE payments, idempotency_keys CASCADE');
+    await dataSource.query('TRUNCATE TABLE payments CASCADE');
   });
 
   const validBody = () => ({

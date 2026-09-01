@@ -7,11 +7,49 @@ import {
 } from 'typeorm';
 import { PaymentMethod } from '../enums/payment-method.enum';
 import { PaymentStatus } from '../enums/payment-status.enum';
+import { IdempotencyRecordStatus } from '../enums/idempotency-status.enum';
 
 @Entity({ name: 'payments' })
 export class Payment {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
+
+  @Column({
+    name: 'idempotency_key',
+    type: 'varchar',
+    length: 255,
+    unique: true,
+  })
+  idempotencyKey!: string;
+
+  @Column({
+    name: 'idempotency_status',
+    type: 'enum',
+    enum: IdempotencyRecordStatus,
+    default: IdempotencyRecordStatus.IN_PROGRESS,
+  })
+  idempotencyStatus!: IdempotencyRecordStatus;
+
+  @Column({
+    name: 'request_fingerprint',
+    type: 'varchar',
+    length: 64,
+  })
+  requestFingerprint!: string;
+
+  @Column({
+    name: 'response_body',
+    type: 'jsonb',
+    nullable: true,
+  })
+  responseBody!: Record<string, unknown> | null;
+
+  @Column({
+    name: 'response_status',
+    type: 'smallint',
+    nullable: true,
+  })
+  responseStatus!: number | null;
 
   @Column({
     name: 'amount_in_cents',

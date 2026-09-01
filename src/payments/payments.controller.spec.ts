@@ -1,10 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { getRepositoryToken } from '@nestjs/typeorm';
 import { PaymentsController } from './payments.controller';
 import { PaymentsService } from './payments.service';
-import { DataSource } from 'typeorm';
-import { getRepositoryToken } from '@nestjs/typeorm';
 import { Payment } from './entities/payment.entity';
-import { IdempotencyKey } from './entities/idempotency-key.entity';
 import { PaymentProvider } from './ports/payment-provider';
 
 describe('PaymentsController', () => {
@@ -15,9 +13,7 @@ describe('PaymentsController', () => {
       controllers: [PaymentsController],
       providers: [
         PaymentsService,
-        { provide: DataSource, useValue: {} },
         { provide: getRepositoryToken(Payment), useValue: {} },
-        { provide: getRepositoryToken(IdempotencyKey), useValue: {} },
         { provide: PaymentProvider, useValue: {} },
       ],
     }).compile();
