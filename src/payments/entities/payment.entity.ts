@@ -55,6 +55,14 @@ export class Payment {
   })
   failureReason!: string | null;
 
+  @Column({
+    name: 'instrument_reference',
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+  })
+  instrumentReference!: string | null;
+
   @CreateDateColumn({
     name: 'created_at',
     type: 'timestamptz',
