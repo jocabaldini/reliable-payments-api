@@ -2,12 +2,14 @@ import { ConflictException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as crypto from 'crypto';
-import { CreatePaymentDto } from './dto/create.payment.dto';
+import { CreatePaymentDto } from './dto/create-payment.dto';
 import { Payment } from './entities/payment.entity';
 import { PaymentStatus } from './enums/payment-status.enum';
 import { IdempotencyRecordStatus } from './enums/idempotency-status.enum';
 import { PaymentMethod } from './enums/payment-method.enum';
 import { PaymentProvider } from './ports/payment-provider';
+import { resolvePaymentOutcome } from './shared/payment-outcome';
+import { finalizePaymentOutcome } from './shared/finalize-payment-outcome';
 
 interface PaymentRow {
   id: string;
@@ -85,57 +87,26 @@ export class PaymentsService {
     // claimed[0] existe com certeza — RETURNING * de um INSERT bem-sucedido sempre traz exatamente uma linha.
     const claimedPayment = claimed[0]!;
 
-    const providerInput = {
-      providerIdempotencyKey: idempotencyKey,
-      amountInCents: data.amountInCents,
-      currency: data.currency,
-    };
-    let finalStatus: PaymentStatus;
-    let failureReason: string | null = null;
-    let instrumentReference: string | null = null;
-
-    if (data.paymentMethod === PaymentMethod.CREDIT_CARD) {
-      const result = await this.paymentProvider.authorize(providerInput);
-      if (result.outcome === 'approved') {
-        finalStatus = PaymentStatus.SUCCEEDED;
-      } else {
-        finalStatus = PaymentStatus.FAILED;
-        failureReason = result.failureReason ?? 'declined_without_reason';
-      }
-    } else {
-      const result = await this.paymentProvider.generateInstrument(providerInput);
-      finalStatus = PaymentStatus.PENDING;
-      instrumentReference = result.instrumentReference;
-    }
-
-    const responseBody: Partial<Payment> = {
-      id: claimedPayment.id,
-      amountInCents: claimedPayment.amount_in_cents,
-      currency: claimedPayment.currency,
-      paymentMethod: claimedPayment.payment_method,
-      status: finalStatus,
-      externalReference: claimedPayment.external_reference,
-    };
-
-    // update final — de novo, uma linha, uma instrução, atômico sozinho. O `AND status = PROCESSING`
-    // é a proteção contra o item 12 (reconciliação) tentando resolver o mesmo Payment ao mesmo tempo.
-    await this.paymentRepository.query(
-      `UPDATE payments
-         SET status = $1, failure_reason = $2, instrument_reference = $3,
-             idempotency_status = $4, response_body = $5, response_status = $6
-       WHERE id = $7 AND status = $8`,
-      [
-        finalStatus,
-        failureReason,
-        instrumentReference,
-        IdempotencyRecordStatus.COMPLETED,
-        JSON.stringify(responseBody),
-        201,
-        claimedPayment.id,
-        PaymentStatus.PROCESSING,
-      ],
+    const { status, failureReason, instrumentReference } = await resolvePaymentOutcome(
+      this.paymentProvider,
+      {
+        idempotencyKey,
+        amountInCents: claimedPayment.amount_in_cents,
+        currency: claimedPayment.currency,
+        paymentMethod: claimedPayment.payment_method,
+      },
     );
 
-    return responseBody;
+    return finalizePaymentOutcome(
+      this.paymentRepository,
+      {
+        id: claimedPayment.id,
+        amountInCents: claimedPayment.amount_in_cents,
+        currency: claimedPayment.currency,
+        paymentMethod: claimedPayment.payment_method,
+        externalReference: claimedPayment.external_reference,
+      },
+      { status, failureReason, instrumentReference },
+    );
   }
 }
