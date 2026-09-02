@@ -3,6 +3,7 @@ import { Payment } from '../entities/payment.entity';
 import { PaymentStatus } from '../enums/payment-status.enum';
 import { IdempotencyRecordStatus } from '../enums/idempotency-status.enum';
 import { PaymentOutcome } from './payment-outcome';
+import { PaymentResponseBody, toPaymentResponseBody } from './payment-response';
 
 export async function finalizePaymentOutcome(
   paymentRepository: Repository<Payment>,
@@ -11,15 +12,8 @@ export async function finalizePaymentOutcome(
     'id' | 'amountInCents' | 'currency' | 'paymentMethod' | 'externalReference'
   >,
   outcome: PaymentOutcome,
-): Promise<Partial<Payment> & Pick<Payment, 'id' | 'status'>> {
-  const responseBody: Partial<Payment> & Pick<Payment, 'id' | 'status'> = {
-    id: payment.id,
-    amountInCents: payment.amountInCents,
-    currency: payment.currency,
-    paymentMethod: payment.paymentMethod,
-    status: outcome.status,
-    externalReference: payment.externalReference,
-  };
+): Promise<PaymentResponseBody> {
+  const responseBody = toPaymentResponseBody({ ...payment, status: outcome.status });
 
   // mesmo guard condicional de sempre — protege contra o fluxo original e uma
   // varredura de reconciliação tentando resolver o mesmo Payment ao mesmo tempo.

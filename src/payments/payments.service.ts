@@ -1,4 +1,4 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as crypto from 'crypto';
@@ -10,6 +10,7 @@ import { PaymentMethod } from './enums/payment-method.enum';
 import { PaymentProvider } from './ports/payment-provider';
 import { resolvePaymentOutcome } from './shared/payment-outcome';
 import { finalizePaymentOutcome } from './shared/finalize-payment-outcome';
+import { PaymentResponseBody, toPaymentResponseBody } from './shared/payment-response';
 
 interface PaymentRow {
   id: string;
@@ -36,11 +37,24 @@ export class PaymentsService {
     private readonly paymentProvider: PaymentProvider,
   ) {}
 
-  getPayment(id: number): string {
-    return `Getting payment ${id}`;
+  async getPayment(id: string): Promise<PaymentResponseBody> {
+    const payment = await this.paymentRepository.findOne({
+      where: {
+        id,
+      },
+    });
+
+    if (!payment) {
+      throw new NotFoundException();
+    }
+
+    return toPaymentResponseBody(payment);
   }
 
-  async createPayment(idempotencyKey: string, data: CreatePaymentDto): Promise<Partial<Payment>> {
+  async createPayment(
+    idempotencyKey: string,
+    data: CreatePaymentDto,
+  ): Promise<PaymentResponseBody> {
     const fingerprint = crypto
       .createHash('sha256')
       .update(`${data.amountInCents}-${data.currency}-${data.paymentMethod}`)
@@ -78,7 +92,7 @@ export class PaymentsService {
       }
 
       if (existing.idempotencyStatus === IdempotencyRecordStatus.COMPLETED) {
-        return existing.responseBody as Partial<Payment>;
+        return existing.responseBody as PaymentResponseBody;
       }
 
       throw new ConflictException({ error: 'IDEMPOTENCY_KEY_IN_PROGRESS' });

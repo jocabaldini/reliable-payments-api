@@ -1,14 +1,23 @@
-import { BadRequestException, Body, Controller, Get, Headers, Param, Post } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Param,
+  ParseUUIDPipe,
+  Post,
+} from '@nestjs/common';
 import { PaymentsService } from './payments.service';
 import { CreatePaymentDto } from './dto/create-payment.dto';
-import { Payment } from './entities/payment.entity';
+import { PaymentResponseBody } from './shared/payment-response';
 
 @Controller('payments')
 export class PaymentsController {
   constructor(private readonly paymentsService: PaymentsService) {}
 
   @Get(':id')
-  getPayment(@Param('id') id: number): string {
+  getPayment(@Param('id', ParseUUIDPipe) id: string): Promise<PaymentResponseBody> {
     return this.paymentsService.getPayment(id);
   }
 
@@ -16,7 +25,7 @@ export class PaymentsController {
   createPayment(
     @Headers('Idempotency-Key') idempotencyKey: string,
     @Body() createPaymentDto: CreatePaymentDto,
-  ): Promise<Partial<Payment>> {
+  ): Promise<PaymentResponseBody> {
     if (!idempotencyKey) {
       throw new BadRequestException('Idempotency-Key header is required');
     }
